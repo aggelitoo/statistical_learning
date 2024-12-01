@@ -5,6 +5,21 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
+```{r setup, include=FALSE}
+library(knitr)
+delay_code_labels <- NULL
+knit_hooks$set(delay = function(before, options, envir) {
+    if (before) {
+        delay_code_labels <<- append(delay_code_labels, options$label)
+        return(NULL)  ## otherwise knitr will print delay_code_labels every time
+    } else {
+        
+    }
+})
+opts_chunk$set(delay = TRUE, echo = FALSE, message = FALSE, warning = FALSE, 
+               fig.width = 6, fig.asp = 0.618)
+```
+
 ```{r, include=FALSE}
 library(tidyverse)
 library(quantmod)
@@ -13,9 +28,14 @@ library(glmnet)
 library(magrittr)
 ```
 
+Throughout this report, none of the actual R code is visible. Refer to code
+appendix to see which specific packages were used and how the coding was done.
+We will however plot several model summaries throughout the report, which
+makes readability somewhat worse, but as we believe they are relevant, we deemed
+this as a necessary sacrifice.
+
 ## Task 1: Linear regression
 
-Loading the stock data.
 ```{r, include=FALSE}
 tickers = c("^OMX",
             "ABB.ST",
@@ -125,75 +145,92 @@ returns <- na.omit(returns)
 
 ### (a)
 Fitting a linear regression model with the stock log-returns as predictors and
-the log-return of the capital index as response.
-```{r}
+the log-return of the capital index as response. Below is the model summary
+printed out.
+```{r, echo=FALSE}
 model <- lm(data = returns, rOMX ~ .)
 summary(model)
 ```
 According to the p-values of the above summary, none of the features are
 insignificant in their ability to predict the log-returns on the capital market
-index. This is not surprising at all, since we chose our predictors as the most
+index, i.e. they all have influence on the capital market index.
+This is not surprising at all, since we chose our predictors as the most
 important stocks on the market. The capital market index is modeled after these
 stocks. Also, the effects (coefficient estimates) of all features are very
 similar, i.e. no particular one feature stands out as having more or less of an
 impact.
 
 By significance, we mean that under the null-hypothesis: that said coefficient
-has no effect on the response while keeping the others constanst, the observed value would be less than 5 % likely
+has no effect on the response while keeping the others constant,
+the observed value would be less than 5 % likely
 to occur (95 % significance level). For all of our coefficients, this
 probability is well below 5 % and for most of them, this probability is more
 or less zero.
 
 ### (b)
 No, the results from part (a) cannot be used to answer the question of which of
-the stocks have to be included in the mdoel in order to mimic the behavior of
-the swedish capital market index. We have not adressed potential
-contaminators such as multicolinearity, overfitting and joint significance 
-between the predictors (we have only checked marginal significance). We have
-also not validated our model in the sense that we have no idea how it will
-perform on actual test data. 
+the stocks have to be included in the model in order to mimic the behavior of
+the Swedish capital market index.
+We have not yet validated the model, and as such we have no idea how it will
+perform on actual test data. It could for example be that the model is heavily
+overfitted. 
+
+If some of our variables weren't showing significance, we might
+be worried about potentially missing some joint significances, i.e. features
+that jointly show significance - as the significance levels we examined in the
+print-out above are marginal significances. However, as all of our variables
+already show significance, we do not have to worry about this.
 
 ### (c)
 Now using the forward selection in order to select the model. This is done by
 initially only using an intercept and the response variable, and then
 iteratively adding whichever feature would yield the most significance until no
 further improvement is seen.
-```{r}
+```{r, include=FALSE}
 forward_model <- step(model, direction = "forward",
                       scope = formula(~ .))
+```
 
+```{r, echo=FALSE}
 summary(forward_model)
 ```
 
+According to the forward selection method, all stocks should be included in the
+model.
 
 ### (d)
 
-```{r}
+```{r, include=FALSE}
 backward_model <- step(model, direction = "backward")
+```
+
+
+```{r, echo=FALSE}
 summary(backward_model)
 ```
 
 The backward selection yields the same result as the forward selection.
 
-
 ### (e)
 
-First, we want to fit the ridge regression model.
-```{r}
+
+```{r, echo=FALSE}
 x_var <- as.matrix(returns[,2:26])
 y_var <- as.matrix(returns[,1])
 ridge_fit <- glmnet(x_var, y_var, alpha = 0, lambda.min.ratio = 1e-6)
 ```
-Next, in order to choose the best $\lambda$ we will use leave-one-out
-cross-validation.
 
-```{r, cache=TRUE}
+First, we fit the ridge regression model to the data (see code appendix for
+which package is used). Next, in order to choose the best $\lambda$ we will use
+leave-one-out cross-validation. From this we can extract the best $\lambda$ as 
+
+```{r, cache=TRUE, echo=FALSE}
 # cross-validation
 ridge_cv <- cv.glmnet(x_var, y_var, alpha = 0)
 ```
 
 
-```{r}
+```{r, echo=FALSE}
 # printing the best lambda for ridge
 ridge_best_lambda <- ridge_cv$lambda.min
 print(ridge_best_lambda)
@@ -201,29 +238,31 @@ print(ridge_best_lambda)
 We can now print the coefficient estimates against the tested values on
 $\lambda$. We also include a red, dashed vertical line that indicates the
 optimal value on $\lambda$ found by the cross-validation. As can be seen from
-the resulting plot, the $\lambda$ that we found results in next to no shrinkage
+Figure 1, the $\lambda$ that we found results in next to no shrinkage
 at all.
 
-```{r}
+```{r, echo=FALSE, fig.cap='Ridge regression coefficients against values on log-lambda.'}
 plot(ridge_fit, xvar = "lambda")
 abline(v = log(ridge_best_lambda), lty = "dashed", col = "red")
 ```
 
 Fitting a new ridge model using this best $\lambda$ we can compare the
 coefficient estimates to the simple linear regression model from the first task
-and see that they are more or less identical.
-```{r}
+and see that they are more or less identical. As such, the ridge regression
+model is the same as the normal regression model, for which we have already
+deduced that these results are not enough to say which stocks definitely have
+to be included in order to mimic the Swedish capital market index.
+```{r, echo=FALSE}
 best_ridge_fit <- glmnet(x_var, y_var, alpha = 0, lambda = ridge_best_lambda)
 best_ridge_fit$beta
 ```
 
 
-
 ### (f)
 Using the Lasso regression and performing the same steps as in the ridge
-regression task.
+regression task, we get the best $\lambda$ as
 
-```{r}
+```{r, echo=FALSE}
 # fitting the model
 lasso_fit <- glmnet(x_var, y_var, alpha = 1, lambda.min.ratio = 1e-6)
 
@@ -236,28 +275,29 @@ print(lasso_best_lambda)
 ```
 
 
-```{r}
+```{r, echo=FALSE, fig.cap='Lasso regression coefficients against values on log-lambda.'}
 plot(lasso_fit, xvar = "lambda")
 abline(v = log(lasso_best_lambda), lty = "dashed", col = "red")
 ```
 
 Again, let us examine the coefficients of the model that uses this best lambda
-for the lasso regression. Again, we can see that next to no shrinkage at all has
-been applied.
+for the lasso regression. Again, we can see from Figure 2 that next to no shrinkage has
+been applied and that all 25 stocks are still included in the model. The answer
+will therefore be the same here as for all the previous answers. Below are the
+resulting coefficient estimates using the best $\lambda$, which again can be
+compared to previous models to see that they are unchanged.
 
-```{r}
+```{r, echo=FALSE}
 best_lasso_fit <- glmnet(x_var, y_var, alpha = 1, lambda = lasso_best_lambda)
 best_lasso_fit$beta
 ```
 
 ### (g)
 
-According to the results from all of the previous tasks, we can (a bit naively)
+According to the results from all of the previous tasks, we can
 deduce that all stocks should be included in order to mimic the Swedish capital
-market index. This is naive in the sense that we have not examined potential
-co-linearity in any of the steps. Maybe even more importantly, many of the
-coefficient estimates are very small. Is the added complexity of the model
-really worth coefficients with such small effects? Probably not.
+market index as well as possible. Refer to each of the above sub-task model
+summaries for the respective regression coefficients.
 
 ## Task 2: Linear classification
 
@@ -265,7 +305,7 @@ really worth coefficients with such small effects? Probably not.
 We start by splitting the data into 80/20 (preserving chronology) and also
 convert our response variable to binary categorical such that if the return on 
 capital market index on day $t$ is positive we assign $1$, and $0$ otherwise.
-```{r}
+```{r, echo=FALSE}
 # converting capital market index variable to binary categorical
 returns_cat <- returns %>%
   mutate(rOMX = ifelse(rOMX > 0, 1, 0))
@@ -286,9 +326,10 @@ of the 25 stocks as predictors and the other only using the subset of stocks
 selected by the lasso regression in the previous task - but our lasso also
 selected all of the stocks as the best model, we decide to arbitrarily remove
 half of the coefficients for the second model. We remove the half which has the
-lowest coefficient estimates, as these should affect the model the least. 
+lowest coefficient estimates, as these should affect the model the least. We
+do this in order for the task at hand to be compatible with us.
 
-```{r}
+```{r, echo=FALSE}
 # selecting the 12 stocks which coeff estimates were the highest in the lin mod
 subset_stocks <- model$coefficients %>%
   data.frame() %>%
@@ -299,13 +340,15 @@ subset_stocks <- model$coefficients %>%
 subset_stocks <- colnames(subset_stocks)[1:12]
 ```
 
-```{r}
+
+The dimensions of the training and test data after the split:
+```{r, echo=FALSE}
 # the dimensions of the resulting data sets
 dim(train_data)
 dim(test_data)
 ```
 
-```{r}
+```{r, echo=FALSE, warning=FALSE}
 # all stocks model
 logmodel_full <- glm(rOMX ~ ., family = binomial, data = train_data)
 
@@ -314,16 +357,29 @@ logmodel_subset <- glm(rOMX ~ ., family = binomial,
                     data = train_data[c("rOMX", subset_stocks)])
 ```
 
-```{r}
+We can now fit the two models and print out their corresponding summaries.
+
+
+Starting with the model using all of the stocks as predictors. From the below
+print-out we can now see that all predictors are no longer significant. This
+indicates that we should consider dropping the insignificant variables from the
+model. Either directly or through some of the selection methods used in the
+previous task. 
+```{r, echo=FALSE}
 summary(logmodel_full)
 ```
 
-```{r}
+Now moving on to the model that only uses the half of the stocks that yielded
+the  largest coefficient estimates in the initial linear model. From this model
+print-out we can see that each stock is regarded as significant.
+
+```{r, echo=FALSE}
 summary(logmodel_subset)
 ```
 
 ### (b)
-```{r}
+Now moving on to the prediction using the models on the same test data.
+```{r, echo=FALSE}
 # predictions of the full model
 predictions_full <- predict(logmodel_full,
                        newdata = select(test_data, !rOMX),
@@ -338,8 +394,8 @@ pred_labels_subset <- ifelse(predictions_subset > 0.5, 1, 0)
 ```
 
 
-And now checking the prediction accuracy.
-```{r}
+The misclassification proportion of the full model is:
+```{r, echo=FALSE}
 n_test_data <- nrow(test_data)
 true_labels <- test_data["rOMX"]
 
@@ -350,8 +406,27 @@ full_model_accuracy <- full_model_misclassifications / n_test_data
 sub_model_accuracy <- sub_model_misclassifications / n_test_data
 
 full_model_accuracy
+```
+
+and the misclassification proportion of the subset model is:
+```{r, echo=FALSE}
 sub_model_accuracy
 ```
 
 ### (c)
+The conclusions drawn from the results on the accuracy of the models is that
+the full model performed slightly better than the one using only half of the
+predictors. As we removed predictors somewhat arbitrarily from the latter model,
+this is not very surprising. What can be said about both models, however, is
+that they both tested very well on unseen data, i.e. that the logistic model
+based on the top stocks on the Swedish market form relatively strong evidence
+of whether or not the capital market index will go up or down on a given day.
 
+## Code appendix
+
+```{r codeprint, echo = TRUE, eval = FALSE, ref.label = delay_code_labels, delay = FALSE}
+```
+
+```{r}
+sessionInfo()
+```
