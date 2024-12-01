@@ -1,0 +1,199 @@
+---
+title: "Project 1 - Statistical learning"
+author: "August Jonasson"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(quantmod)
+library(corrplot)
+library(glmnet)
+```
+
+## Task 1 - Linear regression
+
+Loading the data.
+```{r, include=FALSE}
+tickers = c("^OMX",
+            "ABB.ST",
+            "NDA-SE.ST",
+            "HM-B.ST",
+            "ATCO-A.ST",
+            "ERIC-B.ST", 
+            "ESSITY-B.ST",
+            "SAND.ST",
+            "BOL.ST",
+            "GETI-B.ST",
+            "ALFA.ST",
+            "ATCO-B.ST",
+            "VOLV-B.ST",
+            "SHB-A.ST",
+            "ELUX-B.ST", 
+            "SEB-A.ST",
+            "ASSA-B.ST",
+            "AZN.ST",
+            "SWED-A.ST",
+            "TELIA.ST",
+            "TEL2-B.ST",
+            "SBB-B.ST",
+            "INVE-B.ST",
+            "SCA-B.ST",
+            "HEXA-B.ST",
+            "SINCH.ST")
+
+getSymbols(tickers, src="yahoo", from = '2017-12-31', to = "2023-12-31")
+
+# adjusting "bad" names
+NDA_SE.ST = `NDA-SE.ST`
+HM_B.ST = `HM-B.ST`
+ATCO_A.ST = `ATCO-A.ST`
+ERIC_B.ST = `ERIC-B.ST`
+ESSITY_B.ST = `ESSITY-B.ST`
+GETI_B.ST = `GETI-B.ST`
+ATCO_B.ST = `ATCO-B.ST`
+VOLV_B.ST = `VOLV-B.ST`
+SHB_A.ST = `SHB-A.ST`
+ELUX_B.ST = `ELUX-B.ST`
+SEB_A.ST = `SEB-A.ST`
+ASSA_B.ST = `ASSA-B.ST`
+SWED_A.ST = `SWED-A.ST`
+TEL2_B.ST = `TEL2-B.ST`
+SBB_B.ST = `SBB-B.ST`
+INVE_B.ST = `INVE-B.ST`
+NDA_SE.ST = `NDA-SE.ST`
+SCA_B.ST = `SCA-B.ST`
+HEXA_B.ST = `HEXA-B.ST`
+
+OMX_ad = OMX$OMX.Adjusted
+ABB.ST_ad = ABB.ST$ABB.ST.Adjusted
+NDA_SE.ST_ad = NDA_SE.ST$`NDA-SE.ST.Adjusted`
+HM_B.ST_ad = HM_B.ST$`HM-B.ST.Adjusted`
+ATCO_A.ST_ad = ATCO_A.ST$`ATCO-A.ST.Adjusted`
+ERIC_B.ST_ad = ERIC_B.ST$`ERIC-B.ST.Adjusted`
+ESSITY_B.ST_ad = ESSITY_B.ST$`ESSITY-B.ST.Adjusted`
+SAND.ST_ad = SAND.ST$SAND.ST.Adjusted
+BOL.ST_ad = BOL.ST$BOL.ST.Adjusted
+GETI_B.ST_ad = GETI_B.ST$`GETI-B.ST.Adjusted`
+ALFA.ST_ad = ALFA.ST$ALFA.ST.Adjusted
+ATCO_B.ST_ad = ATCO_B.ST$`ATCO-B.ST.Adjusted`
+VOLV_B.ST_ad = VOLV_B.ST$`VOLV-B.ST.Adjusted`
+SHB_A.ST_ad = SHB_A.ST$`SHB-A.ST.Adjusted`
+ELUX_B.ST_ad = ELUX_B.ST$`ELUX-B.ST.Adjusted`
+SEB_A.ST_ad = SEB_A.ST$`SEB-A.ST.Adjusted`
+ASSA_B.ST_ad = ASSA_B.ST$`ASSA-B.ST.Adjusted`
+AZN.ST_ad = AZN.ST$AZN.ST.Adjusted
+SWED_A.ST_ad = SWED_A.ST$`SWED-A.ST.Adjusted`
+TELIA.ST_ad = TELIA.ST$TELIA.ST.Adjusted
+TEL2_B.ST_ad = TEL2_B.ST$`TEL2-B.ST.Adjusted`
+SBB_B.ST_ad = SBB_B.ST$`SBB-B.ST.Adjusted`
+INVE_B.ST_ad = INVE_B.ST$`INVE-B.ST.Adjusted`
+SINCH.ST_ad = SINCH.ST$SINCH.ST.Adjusted
+SCA_B.ST_ad = SCA_B.ST$`SCA-B.ST.Adjusted`
+HEXA_B.ST_ad = HEXA_B.ST$`HEXA-B.ST.Adjusted`
+
+market_data=cbind(OMX_ad,ABB.ST_ad,NDA_SE.ST_ad, HM_B.ST_ad, ATCO_A.ST_ad,
+                  ERIC_B.ST_ad, ESSITY_B.ST_ad, SAND.ST_ad, BOL.ST_ad,
+                  GETI_B.ST_ad, ALFA.ST_ad, ATCO_B.ST_ad, VOLV_B.ST_ad,
+                  SHB_A.ST_ad, ELUX_B.ST_ad, SEB_A.ST_ad, ASSA_B.ST_ad, 
+                  AZN.ST_ad, SWED_A.ST_ad, TELIA.ST_ad, TEL2_B.ST_ad,
+                  SBB_B.ST_ad, INVE_B.ST_ad, SINCH.ST_ad, SCA_B.ST_ad, 
+                  HEXA_B.ST_ad)
+
+k=nrow(market_data)
+returns=as.data.frame(log(as.matrix(market_data[2:k,]))-log(
+  as.matrix(market_data[1:(k-1),])))
+names(returns)=c("rOMX","rABB","rNDA.SE.ST", "HM_B.ST", "ATCO_A.ST",
+                 "ERIC_B.ST", "ESSITY_B.ST", "SAND.ST", "BOL.ST",
+                 "GETI_B.ST", "ALFA.ST", "ATCO_B.ST", "VOLV_B.ST",
+                 "SHB_A.ST", "ELUX_B.ST", "SEB_A.ST", "ASSA_B.ST",
+                 "AZN.ST", "SWED_A.ST", "TELIA.ST", "TEL2_B.ST",
+                 "SBB_B.ST", "INVE_B.ST", "SINCH.ST", "SCA_B.ST",
+                 "HEXA_B.ST")
+
+save(returns, file = "returns.Rda")
+```
+
+
+```{r, include=FALSE}
+load("returns.Rda")
+returns <- na.omit(returns)
+```
+
+
+### (a)
+
+Fitting a linear regression model with the stock log-returns as predictors and
+the log-return of the capital index as response.
+```{r}
+model <- lm(data = returns, rOMX ~ .)
+summary(model)
+```
+According to the p-values of the above summary, none of the features are
+insignificant in their ability to predict the log-returns on the capital market
+index. This is not surprising at all, since we chose our predictors as the most
+important stocks on the market. The capital market index is modeled after these
+stocks. Also, the effects (coefficient estimates) of all features are very
+similar, i.e. no particular one feature stands out as having more or less of an
+impact.
+
+By significance, we mean that under the null-hypothesis: that said coefficient
+has no effect on the response while keeping the others constanst, the observed value would be less than 5 % likely
+to occur (95 % significance level). For all of our coefficients, this
+probability is well below 5 % and for most of them, this probability is more
+or less zero.
+
+### (b)
+No, the results from part (a) cannot be used to answer the question of which of
+the stocks have to be included in the mdoel in order to mimic the behavior of
+the swedish capital market index. We have not adressed potential
+contaminators such as multicolinearity, overfitting and joint significance 
+between the predictors (we have only checked marginal significance). We have
+also not validated our model in the sense that we have no idea how it will
+perform on actual test data. 
+
+### (c)
+Now using the forward selection in order to select the model. This is done by
+initially only using an intercept and the response variable, and then
+iteratively adding whichever feature would yield the most significance until no
+further improvement is seen.
+```{r}
+forward_model <- step(model, direction = "forward",
+                      scope = formula(~ .))
+
+summary(forward_model)
+```
+
+
+### (d)
+
+```{r}
+backward_model <- step(model, direction = "backward")
+summary(backward_model)
+```
+
+The backward selection yields the same result as the forward selection.
+
+
+### (e)
+
+```{r}
+x_var <- as.matrix(returns[,2:26])
+y_var <- as.matrix(returns[,1])
+ridge_fit <- glmnet(x_var, y_var, alpha = 0)
+summary(ridge_fit)
+```
+```{r}
+plot(ridge_fit, xvar = "lambda", label = FALSE)
+```
+In order to choose the best $\lambda$ we will use leave-one-out
+cross-validation.
+
+```{r}
+ridge_cv <- cv.glmnet(x_var, y_var, alpha = 0)
+```
+
+
+### (f)
+### (g)
