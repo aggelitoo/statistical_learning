@@ -10,9 +10,10 @@ library(tidyverse)
 library(quantmod)
 library(corrplot)
 library(glmnet)
+library(magrittr)
 ```
 
-## Task 1 - Linear regression
+## Task 1: Linear regression
 
 Loading the stock data.
 ```{r, include=FALSE}
@@ -123,7 +124,6 @@ returns <- na.omit(returns)
 
 
 ### (a)
-
 Fitting a linear regression model with the stock log-returns as predictors and
 the log-return of the capital index as response.
 ```{r}
@@ -178,22 +178,180 @@ The backward selection yields the same result as the forward selection.
 
 ### (e)
 
+First, we want to fit the ridge regression model.
 ```{r}
 x_var <- as.matrix(returns[,2:26])
 y_var <- as.matrix(returns[,1])
-ridge_fit <- glmnet(x_var, y_var, alpha = 0)
-summary(ridge_fit)
+ridge_fit <- glmnet(x_var, y_var, alpha = 0, lambda.min.ratio = 1e-6)
 ```
-```{r}
-plot(ridge_fit, xvar = "lambda", label = FALSE)
-```
-In order to choose the best $\lambda$ we will use leave-one-out
+Next, in order to choose the best $\lambda$ we will use leave-one-out
 cross-validation.
 
-```{r}
+```{r, cache=TRUE}
+# cross-validation
 ridge_cv <- cv.glmnet(x_var, y_var, alpha = 0)
 ```
 
 
+```{r}
+# printing the best lambda for ridge
+ridge_best_lambda <- ridge_cv$lambda.min
+print(ridge_best_lambda)
+```
+We can now print the coefficient estimates against the tested values on
+$\lambda$. We also include a red, dashed vertical line that indicates the
+optimal value on $\lambda$ found by the cross-validation. As can be seen from
+the resulting plot, the $\lambda$ that we found results in next to no shrinkage
+at all.
+
+```{r}
+plot(ridge_fit, xvar = "lambda")
+abline(v = log(ridge_best_lambda), lty = "dashed", col = "red")
+```
+
+Fitting a new ridge model using this best $\lambda$ we can compare the
+coefficient estimates to the simple linear regression model from the first task
+and see that they are more or less identical.
+```{r}
+best_ridge_fit <- glmnet(x_var, y_var, alpha = 0, lambda = ridge_best_lambda)
+best_ridge_fit$beta
+```
+
+
+
 ### (f)
+Using the Lasso regression and performing the same steps as in the ridge
+regression task.
+
+```{r}
+# fitting the model
+lasso_fit <- glmnet(x_var, y_var, alpha = 1, lambda.min.ratio = 1e-6)
+
+# cross-validation to get best lambda
+lasso_cv <- cv.glmnet(x_var, y_var, alpha = 1)
+
+# printing the best lambda for lasso 
+lasso_best_lambda <- lasso_cv$lambda.min
+print(lasso_best_lambda)
+```
+
+
+```{r}
+plot(lasso_fit, xvar = "lambda")
+abline(v = log(lasso_best_lambda), lty = "dashed", col = "red")
+```
+
+Again, let us examine the coefficients of the model that uses this best lambda
+for the lasso regression. Again, we can see that next to no shrinkage at all has
+been applied.
+
+```{r}
+best_lasso_fit <- glmnet(x_var, y_var, alpha = 1, lambda = lasso_best_lambda)
+best_lasso_fit$beta
+```
+
 ### (g)
+
+According to the results from all of the previous tasks, we can (a bit naively)
+deduce that all stocks should be included in order to mimic the Swedish capital
+market index. This is naive in the sense that we have not examined potential
+co-linearity in any of the steps. Maybe even more importantly, many of the
+coefficient estimates are very small. Is the added complexity of the model
+really worth coefficients with such small effects? Probably not.
+
+## Task 2: Linear classification
+
+### (a)
+We start by splitting the data into 80/20 (preserving chronology) and also
+convert our response variable to binary categorical such that if the return on 
+capital market index on day $t$ is positive we assign $1$, and $0$ otherwise.
+```{r}
+# converting capital market index variable to binary categorical
+returns_cat <- returns %>%
+  mutate(rOMX = ifelse(rOMX > 0, 1, 0))
+
+# length of data in order make split
+n_data <- nrow(returns_cat)
+
+# creating integer representing roughly 80 % split of data.
+training_length <- round(n_data * 0.8)
+
+# splitting the data into training and test
+train_data <- returns_cat[1:training_length, ]
+test_data <- returns_cat[(training_length+1):n_data, ]
+```
+
+Since the purpose of this task is to train two different models - one using all
+of the 25 stocks as predictors and the other only using the subset of stocks 
+selected by the lasso regression in the previous task - but our lasso also
+selected all of the stocks as the best model, we decide to arbitrarily remove
+half of the coefficients for the second model. We remove the half which has the
+lowest coefficient estimates, as these should affect the model the least. 
+
+```{r}
+# selecting the 12 stocks which coeff estimates were the highest in the lin mod
+subset_stocks <- model$coefficients %>%
+  data.frame() %>%
+  set_colnames("coeff") %>%
+  arrange(desc(coeff)) %>%
+  t()
+
+subset_stocks <- colnames(subset_stocks)[1:12]
+```
+
+```{r}
+# the dimensions of the resulting data sets
+dim(train_data)
+dim(test_data)
+```
+
+```{r}
+# all stocks model
+logmodel_full <- glm(rOMX ~ ., family = binomial, data = train_data)
+
+# stock subset model
+logmodel_subset <- glm(rOMX ~ ., family = binomial,
+                    data = train_data[c("rOMX", subset_stocks)])
+```
+
+```{r}
+summary(logmodel_full)
+```
+
+```{r}
+summary(logmodel_subset)
+```
+
+### (b)
+```{r}
+# predictions of the full model
+predictions_full <- predict(logmodel_full,
+                       newdata = select(test_data, !rOMX),
+                       type = "response")
+pred_labels_full <- ifelse(predictions_full > 0.5, 1, 0)
+
+# predictions of the subset model
+predictions_subset <- predict(logmodel_subset,
+                       newdata = test_data[subset_stocks],
+                       type = "response")
+pred_labels_subset <- ifelse(predictions_subset > 0.5, 1, 0)
+```
+
+
+And now checking the prediction accuracy.
+```{r}
+n_test_data <- nrow(test_data)
+true_labels <- test_data["rOMX"]
+
+full_model_misclassifications <- abs(true_labels - pred_labels_full) %>% sum()
+sub_model_misclassifications <- abs(true_labels - pred_labels_subset) %>% sum()
+
+full_model_accuracy <- full_model_misclassifications / n_test_data
+sub_model_accuracy <- sub_model_misclassifications / n_test_data
+
+full_model_accuracy
+sub_model_accuracy
+```
+
+### (c)
+
