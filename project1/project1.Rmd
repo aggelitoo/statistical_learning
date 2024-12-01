@@ -14,7 +14,7 @@ library(glmnet)
 
 ## Task 1 - Linear regression
 
-Loading the data.
+Loading the stock data.
 ```{r, include=FALSE}
 tickers = c("^OMX",
             "ABB.ST",
