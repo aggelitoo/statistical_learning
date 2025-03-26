@@ -2,3 +2,4 @@
 *.Rhistor
 *.data
 *.names
+project4/images
